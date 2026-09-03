@@ -22,7 +22,9 @@ data <- read_excel("dat/small_transect_date_corrected.xls") %>%
                   Ocasiao , Estrato_arboreo  )) %>%
   rename(Species = Genero.sp, Fragment = Localidade, Date = Data_de_coleta, Ring = Brinco, ID= N_de_campo, 
          Age = Faixa_etaria, Sex = Sexo, Weight_gramm = Peso_gramas, N_offspring = n_Filhotes, Reproductive_status = reprodutivo, Vegetation_type = Habitat_origem, Sampling_session = Expedicao) %>%
-  mutate(Vegetation_type= tolower(Vegetation_type))
+  mutate(Vegetation_type= tolower(Vegetation_type)) %>% 
+  mutate (Month =month(data$Date)) %>%  mutate(season = if_else(Month %in% c(2, 3,4,5,6, 7), "humid", "dry"))
+
 
 ```
 
@@ -122,7 +124,149 @@ One thing we have to be careful is that some individuals were captured several t
 
 
 ```{r }
-data %>% group_by(ID) %>% slice(1) %>% ungroup() %>% group_by(Fragment) %>% summarise(n)
+data %>% group_by(ID) %>% slice(1) %>% ungroup() %>% filter(Sex %in% c("F", "M")) %>% count(Species, Fragment, Sex) %>% pivot_wider(names_from = Sex, values_from = n) %>% mutate(Prop_females = round(F/(F+M),2))
+
+Sex_ratio <- data %>% group_by(ID) %>% slice(1) %>% ungroup() %>% filter(Sex %in% c("F", "M")) %>% count(Species, Fragment, Sex) %>% pivot_wider(names_from = Sex, values_from = n) %>% mutate(Prop_females = round(F/(F+M),2)) %>% dplyr::select(-c("M", "F")) %>% pivot_wider(names_from = Fragment, values_from = Prop_females ) %>% mutate(Parameter="Sex_ratio")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### Percent of reproductive females 
+
+When do the species reproduce ?
+Note that we want to focus on adult females. I consider the dry seasons from august to january and the dry from february to july.
+
+
+```{r}
+# per month, consider that the individual is reprodsuctive if it was seen at leats one in a reprodtuve state
+#Make sure females appear only once a month
+data_monthly <- data %>% filter(Sex == "F") %>% filter(Age == "ADULTO")%>%  group_by(ID, Species, Fragment, Month) %>%
+  summarise( Reproductive_status = ifelse( any(Reproductive_status == "S"),"S", "N" ), .groups = "drop" )%>% ungroup()
+
+
+percent_repro_females <- data_monthly  %>% count(Month, Species, Fragment, Reproductive_status) %>% pivot_wider(names_from = Reproductive_status, values_from = n) %>% mutate(N = ifelse(is.na(N), 0, N), S = ifelse(is.na(S), 0, S)) %>% mutate(Percent_repro = S/(S+N)) %>%  mutate(  Month = factor(Month, levels = 1:12,
+      labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec") ) )
+
+
+
+ggplot(percent_repro_females,  aes(x = Month, y = Percent_repro, fill = Fragment)) +
+  geom_col( color = "black", position = position_dodge() ) +
+  facet_wrap(~Species) +
+  scale_fill_manual(values = c( "RPPN_Pacatuba" = "#E69F00", "RPPN_Gargaú" = "darkorchid1", "Rebio_Guaribas" = "yellowgreen" )) +
+  theme_bw() +
+  labs( x = "Month", y = "Reproductive females (%)",  fill = "Fragment")
+```
+
+It seems that Marmosa murina only reproduces in March April (and in Pacatuba), where the proportion of reproductive female is 0.575 (mean between 1 in March and 0.4 in April).
+
+For Didelphis albiventris most reproduction seem to occur during the wet season, from March to July. There is then a slight reproduction during the dry season. Let's see closer the estimates in eah fragment for this species.
+
+
+```{r}
+ggplot((percent_repro_females%>% filter(Species == "Didelphis_albiventris")),  aes(x = Month, y = Percent_repro)) +
+  geom_col( color = "black", position = position_dodge() ) +
+  facet_wrap(~Fragment) +
+  theme_bw() +
+  labs( x = "Month", y = "Reproductive females (%)",  fill = "Fragment")
+
+
+# Proportion by season measured as the mean of the proportion during each given season
+percent_repro_females <- percent_repro_females %>% mutate(season = if_else(Month %in%c("Feb", "Mar", "Apr", "May", "Jun", "Jul"), "wet", "dry"))
+
+percent_repro_females %>% group_by(season, Species, Fragment) %>% summarise(mean = mean(Percent_repro))
+
+
+```
+
+
+Now calculate this with only one value per female per season
+
+```{r}
+
+data_season <- data %>% filter(Sex == "F")%>% filter(Age == "ADULTO") %>%  group_by(ID, Species, Fragment, season) %>%
+  summarise( Reproductive_status = ifelse( any(Reproductive_status == "S"),"S", "N" ), .groups = "drop" )%>% ungroup()
+
+
+percent_repro_females_season <- data_season  %>% count(season, Species, Fragment, Reproductive_status) %>% pivot_wider(names_from = Reproductive_status, values_from = n) %>% mutate(N = ifelse(is.na(N), 0, N), S = ifelse(is.na(S), 0, S)) %>% mutate(Percent_repro = S/(S+N)) 
+
+
+
+final_percent_repro <- percent_repro_females_season %>% dplyr::select(-c(N, S)) %>% pivot_wider(names_from = Fragment, values_from = Percent_repro) %>% mutate(type = "Percent_repro", Parameter = (paste(type, season)%>% str_replace_all(" ", "_"))) %>% dplyr::select(-c(season, type))
+# no adult females captured in the dry season in Pacatuba
+```
+
+### Age structure 
+
+```{r}
+#Do individuals alwaus have the same age within a month ?
+data$Year <- year(data$Date)
+data <- data %>% filter(!(ID== "MGB_640" & Fragment == "RPPN_Gargaú"))
+
+# First assign only one value when an individual was seen several time: When an individual in the same month is said sub adult and adult, I chose to keep subadult so we only consider them adults when we are sure: If it was seen as reproductive, then it is assigned as an adult
+
+age_monthly <- data %>%
+  group_by(ID, Species, Fragment, Year, Month) %>%
+  summarise(  Age = case_when(
+      any(Age == "JOVEM") ~ "JOVEM",   # Si jovem présent, on garde JOVEM
+      
+      # Si SUBADULTO et ADULTO sont présents :
+      # ADULTO uniquement si reproducteur
+      any(Age == "SUBADULTO") & any(Age == "ADULTO") &
+        any(Reproductive_status == "S") ~ "ADULTO",
+      
+      # Sinon, en cas d'hésitation SUBADULTO/ADULTO
+      # on garde SUBADULTO
+      any(Age == "SUBADULTO") ~ "SUBADULTO",
+      # ADULTO sans ambiguïté
+      any(Age == "ADULTO") ~ "ADULTO",
+      
+      TRUE ~ NA_character_ ),  .groups = "drop"  )
+
+# is there an individual with different values in the same month ?
+age_monthly %>%
+  group_by(ID, Year, Month) %>%
+  summarise( n_age = n_distinct(Age),  ages = paste(unique(Age), collapse = ", "), .groups = "drop" ) %>%
+  filter(n_age > 1)
+
+
+prop_age_monthly <- age_monthly %>%
+  filter(!is.na(Age)) %>%
+  mutate( Season = case_when( Month %in% 2:7 ~ "Wet", Month %in% c(8:12, 1) ~ "Dry" ) ) %>%
+  count(Fragment, Species, Season, Age) %>%
+  group_by(Fragment, Species, Season) %>%
+  mutate( Proportion = n / sum(n)  ) %>%
+  ungroup() 
+
+final_prop_age <- prop_age_monthly %>%
+dplyr::select(-n) %>% mutate(Parameter = str_replace_all(paste("Prop", Age, Season), " ", "_"))%>% dplyr::select(-c(Season, Age)) %>%  pivot_wider(names_from = Fragment, values_from = Proportion) %>% dplyr::select(Species, everything(), Parameter)
+
+# Visualize this
+
+
+ggplot( prop_age_monthly %>% filter(Species == "Didelphis_albiventris"),
+  aes(x = Season, y = Proportion, fill = Age)) +
+  geom_col(position = position_dodge()  ) +
+  facet_wrap(~Fragment) +
+  theme_bw() +
+  labs( x = "Season", y = "Proportion",  fill = "Age")
+
+
+ggplot( prop_age_monthly %>% filter(Species == "Marmosa_murina"),
+  aes(x = Season, y = Proportion, fill = Age)) +
+  geom_col(position = position_dodge()  ) +
+  facet_wrap(~Fragment) +
+  theme_bw() +
+  labs( x = "Season", y = "Proportion",  fill = "Age")
+
+
+```
+
+
+## Final table 
+
+```{r}
+
+rbind(Sex_ratio, final_percent_repro, final_prop_age)
+
+```
+
+
+
