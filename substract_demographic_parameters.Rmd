@@ -1,0 +1,128 @@
+---
+title: "Demographic parameters estimates"
+author: "Mellina Sidous"
+date: "2026-09-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+
+# load data
+data <- read_excel("dat/small_transect_date_corrected.xls") %>% 
+  filter(Genero.sp %in% c("Marmosa_murina", "Didelphis_albiventris")) %>% 
+  dplyr::select(c(Genero.sp,Localidade,Data_de_coleta,                                                                                    Brinco,codigo, N_de_campo,Faixa_etaria, Sexo, Peso_gramas ,
+                  #Embrioes ,Vagina,Grávida, Lactante ,
+                  n_Filhotes , reprodutivo ,Habitat_origem, Expedicao,Estacao , 
+                  Ocasiao , Estrato_arboreo  )) %>%
+  rename(Species = Genero.sp, Fragment = Localidade, Date = Data_de_coleta, Ring = Brinco, ID= N_de_campo, 
+         Age = Faixa_etaria, Sex = Sexo, Weight_gramm = Peso_gramas, N_offspring = n_Filhotes, Reproductive_status = reprodutivo, Vegetation_type = Habitat_origem, Sampling_session = Expedicao) %>%
+  mutate(Vegetation_type= tolower(Vegetation_type))
+
+```
+
+## How many individuals were resighted ? Summary of the number of individuals captured and recaptured in the different Atlantic forest fragment: 
+
+### First, how many individuals of each species were captured in total ? 
+
+```{r}
+unique_individuals <- data %>% group_by(ID) %>% slice(1) 
+table(unique_individuals$Species)
+
+```
+
+And how are they spread across the three fragments ?
+
+```{r}
+table(unique_individuals$Species, unique_individuals$Fragment)
+
+```
+And were they captured within atlantic forest or sugar cane plantation ?
+
+```{r}
+table(unique_individuals$Species, unique_individuals$Vegetation_type, unique_individuals$Fragment) 
+
+```
+### Among the 305 D. albiventris and 78 M. murina captured in total, how many were captured more than once ?
+
+```{r }
+resighted_individuals <- table(data$ID, data$Species) %>% as.data.frame() %>% filter(Freq>1) %>% rename(ID=Var1, Species=Var2, N_captures=Freq)
+
+table(resighted_individuals$Species)
+
+```
+127 individuals of Didelphis were captured more than once and 21 Marmosa murina. 
+
+How many times were they resighted?
+
+```{r}
+ resighted_individuals %>% group_by(Species) %>% summarise(mean = mean(N_captures), sd = sd(N_captures), max= max(N_captures), min= min(N_captures))
+
+ggplot(resighted_individuals, aes(x= N_captures))+
+  geom_histogram()+
+  facet_wrap(~Species) +
+  theme_bw()
+
+
+```
+
+In which fragments were they observed (one indiviual count for one, we remove the recapture to obtain the number)?
+
+```{r}
+data_resighted_only <- data %>% filter(ID %in% resighted_individuals$ID)
+
+table((data_resighted_only %>% group_by(ID) %>% slice(1))$Species, (data_resighted_only %>% group_by(ID) %>% slice(1))$Fragment)
+
+``` 
+### And how many individuals wre recaptured during different sampling sessions ?
+
+```{r}
+resighted_different_sampling_sessions <- data_resighted_only %>% group_by(ID, Sampling_session) %>% slice(1)
+
+table((table(resighted_different_sampling_sessions$ID, resighted_different_sampling_sessions$Species) %>% as.data.frame() %>% filter(Freq>1))$Var2) 
+```
+
+
+```{r}
+total_resighted_dsampling <- table(resighted_different_sampling_sessions$ID, resighted_different_sampling_sessions$Species) %>% as.data.frame() %>% filter(Freq>1) %>% rename(ID=Var1, Species=Var2, N_captures=Freq)
+
+ total_resighted_dsampling %>% group_by(Species) %>% summarise(mean = mean(N_captures), sd = sd(N_captures), max= max(N_captures), min= min(N_captures))
+
+
+ggplot(total_resighted_dsampling, aes(x= N_captures))+
+  geom_histogram()+
+  facet_wrap(~Species) +
+  theme_bw()
+
+
+```
+
+And in what fragments do we have individuals that were recaptured at least once at a different sampling session than that they were captured? 
+
+```{r}
+
+resighted_different_sampling_sessions <- data_resighted_only %>% group_by(ID, Sampling_session) %>% slice(1)
+
+table((data %>% filter( ID %in% total_resighted_dsampling$ID) %>% group_by(ID) %>% slice(1))$Species, (data %>% filter( ID %in% total_resighted_dsampling$ID) %>% group_by(ID) %>% slice(1))$Fragment)
+
+
+```
+
+
+## Substract demographic parameters for PVA
+
+### Sex ratio   
+
+One thing we have to be careful is that some individuals were captured several times and thus may count double for these parameters (for example if females are more often recaptured than males, this will bias sex ratio toward females). Thus we have to keep one line per individual
+
+
+```{r }
+data %>% group_by(ID) %>% slice(1) %>% ungroup() %>% group_by(Fragment) %>% summarise(n)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
