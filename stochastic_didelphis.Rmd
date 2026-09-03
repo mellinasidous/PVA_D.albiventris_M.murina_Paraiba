@@ -1,0 +1,699 @@
+---
+title: "ENV_STOCH_DIDELPHIS"
+author: "Mellina Sidous"
+date: "2026-05-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(popbio)
+library(tidyverse)
+library(ggplot2)
+```
+
+## 1.1 Survie variable autour d’une valeur moyenne 
+
+La survie n’est pas constante, mais varie entre années en fonction des conditions environnementales plus ou moins rudes.
+
+Parameters will vary from one year to another.
+
+### Step 1 define demographic parameters
+
+
+
+```{r}
+# Environmental covariance
+Env_cov <- rnorm(1000, mean = 0, sd = 1) # this will drive if we are in a good or bad year  # + add variation across fragments ?
+Env_guaribas <- Env_cov + rnorm(1000, 0, 0.075)
+Env_gargau   <- Env_cov + rnorm(1000, 0, 0.1)
+Env_pacatuba <- Env_cov + rnorm(1000, 0, 0.225)
+# set.seed(2022)
+
+# -----------------------------
+# 1. GUARIBAS
+# -----------------------------
+s1_guaribas <- plogis(qlogis(0.45) + 0.5 * Env_guaribas)
+s2_guaribas <- plogis(qlogis(0.7) + 0.5 * Env_guaribas)
+f_guaribas  <- exp(log(0.68) + 0.5 * Env_guaribas)
+
+
+# -----------------------------
+# 2. GARGAU
+# -----------------------------
+s1_gargau <- plogis(qlogis(0.45) + 0.5 * Env_gargau)
+s2_gargau <- plogis(qlogis(0.7) + 0.5 * Env_gargau)
+f_gargau  <- exp(log(0.77) + 0.5 * Env_gargau)
+
+
+# -----------------------------
+# 3. PACATUBA
+# -----------------------------
+s1_pacatuba <- plogis(qlogis(0.225) + 0.5 * Env_pacatuba)
+s2_pacatuba <- plogis(qlogis(0.45) + 0.5 * Env_pacatuba) # 0. 5 is it very sensitive or not ?
+f_pacatuba  <- exp(log(2.52) + 0.5 * Env_pacatuba)
+#####################################################
+#s1_guaribas = pnorm(qlogis(0.6) + 0.5 * Env_cov)
+# s1_guaribas = rnorm(n = 1000, mean = 0.6, sd = 0.075)
+# s2_guaribas = rnorm(n = 1000, mean = 0.7, sd = 0.075)
+# f_guaribas = rnorm(n=1000, mean = 0.68, sd = 0.075)
+# 
+# s1_gargau = rnorm(n = 1000, mean = 0.6, sd = 0.1)
+# s2_gargau = rnorm(n = 1000, mean = 0.7, sd = 0.1)
+# f_gargau = rnorm(n=1000, mean = 0.77, sd = 0.1)
+# 
+# s1_pacatuba = rnorm(n = 1000, mean = 0.35, sd = 0.1)
+# s2_pacatuba = rnorm(n = 1000, mean = 0.45, sd = 0.225)
+# f_pacatuba = rnorm(n = 1000, mean = 2.52, sd = 0.225)
+# 
+# #Make sure there are no zeros
+# s1_guaribas <- s1_guaribas[s1_guaribas > 0]
+# s2_guaribas <- s2_guaribas[s2_guaribas > 0]
+# f_guaribas <- f_guaribas[f_guaribas > 0]
+# 
+# s1_gargau <- s1_gargau[s1_gargau > 0]
+# s2_gargau <- s2_gargau[s2_gargau > 0]
+# f_gargau <- f_gargau[f_gargau > 0]
+# 
+# s1_pacatuba <- s1_pacatuba[s1_pacatuba > 0]
+# s2_pacatuba <- s2_pacatuba[s2_pacatuba > 0]
+# f_pacatuba <- f_pacatuba[f_pacatuba > 0]
+
+#On peut représenter graphiquement les valeurs de survie simulées avec un histogramme par exemple :
+# 
+hist(Env_pacatuba)
+hist(Env_gargau)
+hist(Env_guaribas)
+# hist(s1_guaribas,main="Juvenile survival rate - Guaribas")
+# abline(v=0.45,col="red",lwd=2)
+# 
+# hist(s2_guaribas,main="Adult survival rate - Guaribas")
+# abline(v=0.7,col="red",lwd=2)
+# 
+# hist(s1_gargau,main="Juvenile survival rate - Gargau")
+# abline(v=0.45,col="red",lwd=2)
+# 
+# hist(s2_gargau,main="Adult survival rate - Gargau")
+# abline(v=0.7,col="red",lwd=2)
+# 
+# hist(s1_pacatuba,main="Juvenile survival rate - Pacatuba")
+# abline(v=0.225,col="red",lwd=2)
+# 
+# hist(s2_pacatuba,main="Adult survival rate - Pacatuba")
+# abline(v=0.45,col="red",lwd=2)
+```
+
+
+
+### Step 2 : Build transition matrix
+
+```{r}
+# Liste des fragments avec leurs vecteurs de survie
+fragments <- list(
+  guaribas = list(f = f_guaribas, s1 = s1_guaribas, s2 = s2_guaribas),
+  gargau   = list(f = f_gargau, s1 = s1_gargau,   s2 = s2_gargau),
+  pacatuba = list(f= f_pacatuba, s1 = s1_pacatuba, s2 = s2_pacatuba))
+
+# Classes
+classes <- c("juveniles", "adultes")
+
+# List to stock all matrices
+matrices_all <- list()
+
+# Boucle sur les fragments
+for(frag in names(fragments)) {
+  
+  s1 <- fragments[[frag]]$s1
+  s2 <- fragments[[frag]]$s2
+  f <- fragments[[frag]]$f
+  #loop over the number of survival values
+  #ns <- min(length(s1), length(s2))
+  ns <- length(s1)
+  mat_list <- list()
+  
+  for(i in 1:ns){
+    mat_list[[i]] <- matrix(c(0, f[i], s1[i], s2[i]),
+                            nrow = 2, 
+                            ncol = 2, 
+                            byrow = TRUE, dimnames = list(classes, classes))
+  }
+  
+  matrices_all[[frag]] <- mat_list
+}
+
+# Exemple : voir les matrices de guaribas
+head(matrices_all$guaribas)
+
+
+```
+
+
+### Step 3 Simulate population evolution
+
+
+
+```{r}
+stochsim500_guaribas <- stoch.projection(matrices_all$guaribas, 
+                                n0 = c(7,25),
+                                tmax = 100, 
+                                nreps = 500, 
+                                verbose = TRUE)
+
+stochsim500_gargau <- stoch.projection(matrices_all$gargau, 
+                                n0 = c(5,10),
+                                tmax = 100, 
+                                nreps = 500, 
+                                verbose = TRUE)
+
+stochsim500_pacatuba <- stoch.projection(matrices_all$pacatuba, 
+                                n0 = c(2,4),
+                                tmax = 100, 
+                                nreps = 500, 
+                                verbose = TRUE)
+
+
+
+```
+
+
+
+### Step 4: Growth rate
+
+```{r}
+# Repeat several times to have mean and IC
+replicates_guaribas <- replicate(100,  stoch.growth.rate(matrices_all$guaribas, maxt = 1000)) %>% as.data.frame() 
+
+replicates_guaribas_only <- replicates_guaribas [1,] %>% unlist() %>% as.data.frame() %>% rename(est.stoch.growth = ".") 
+
+mean(exp(replicates_guaribas_only$est.stoch.growth))
+sd(exp(replicates_guaribas_only$est.stoch.growth))
+quantile(exp(replicates_guaribas_only$est.stoch.growth), c(0.025, 0.975))
+
+# GARGAU
+replicates_gargau <- replicate(100,  stoch.growth.rate(matrices_all$gargau, maxt = 1000)) %>% as.data.frame() 
+replicates_gargau_only <- replicates_gargau [1,] %>% unlist() %>% as.data.frame() %>% rename(est.stoch.growth = ".")
+
+mean(exp(replicates_gargau_only$est.stoch.growth))
+sd(exp(replicates_gargau_only$est.stoch.growth))
+quantile(exp(replicates_gargau_only$est.stoch.growth), c(0.025, 0.975))
+
+# PACATUBA
+replicates_pacatuba <- replicate(100,  stoch.growth.rate(matrices_all$pacatuba, maxt = 1000)) %>% as.data.frame() 
+replicates_pacatuba_only <- replicates_pacatuba [1,] %>% unlist() %>% as.data.frame() %>% rename(est.stoch.growth = ".")
+
+mean(exp(replicates_pacatuba_only$est.stoch.growth))
+sd(exp(replicates_pacatuba_only$est.stoch.growth))
+quantile(exp(replicates_pacatuba_only$est.stoch.growth), c(0.025, 0.975))
+
+######################NO variation, estimation converged 
+
+lambdastoch_500_guaribas <- stoch.growth.rate(matrices_all$guaribas, maxt = 1000, verbose = TRUE)
+
+lambdastoch_500_gargau <- stoch.growth.rate(matrices_all$gargau, maxt = 1000, verbose = TRUE)
+
+lambdastoch_500_pacatuba <- stoch.growth.rate(matrices_all$pacatuba, maxt = 1000, verbose = TRUE)
+
+
+# " approx " is the log of stochastic growth rate (calculated with Tuljapurkar method), also called stochastic log(lamda). We need to exp it to obtain lambda
+
+lambdastoch_500_guaribas$approx %>% exp()
+lambdastoch_500_gargau$approx %>% exp()
+lambdastoch_500_pacatuba$approx %>% exp()
+
+
+```
+
+### Step 5: Extinction probability (PE)
+
+ stoch.quasi.ext() = quasi-extinction probability.
+On parle de quasi-extinction lorsque la population descend en dessous d'un certain nombre d'individus dans la pop, que l'on considère critique pour la survie de l'espèce. La biologie de l'espèce permet de déterminer ce seuil.
+
+
+```{r}
+proba.ext_guaribas <- stoch.quasi.ext(matrices_all$guaribas, 
+                       n = c(7, 25), # effectifs initiaux
+                       Nx = 5,  # seuil limite en dessous duquel la pop s'éteint
+                       nreps = 5000, # nombre de trajectoires de pop
+                       tmax = 100, # nombre d'iterations (années)
+                       maxruns = 5, # répéter cela 10 fois
+                       verbose = TRUE)
+
+# # calculer IC 
+# p <- proba.ext_guaribas  # vecteur de probas
+# n <- 5000
+# 
+# se <- sqrt(p * (1 - p) / n)
+# 
+# IC_low  <- p - 1.96 * se
+# IC_high <- p + 1.96 * se
+# IC_low[IC_low < 0] <- 0
+# IC_high[IC_high > 1] <- 1
+# 
+# plot(p, type = "l", ylim = c(0,1), lwd = 2)
+# lines(IC_low, lty = 2)
+# lines(IC_high, lty = 2)
+#
+
+proba.ext_gargau <- stoch.quasi.ext(matrices_all$gargau, 
+                       n = c(5, 15), # effectifs initiaux
+                       Nx = 5,  # seuil limite en dessous duquel la pop s'éteint
+                       nreps = 5000, # nombre de trajectoires de pop
+                       tmax = 100, # nombre d'iterations (années)
+                       maxruns = 5, # répéter cela 10 fois
+                       verbose = TRUE)
+
+proba.ext_pacatuba <- stoch.quasi.ext(matrices_all$pacatuba, 
+                       n = c(2, 4), # effectifs initiaux
+                       Nx = 5,  # seuil limite en dessous duquel la pop s'éteint
+                       nreps = 5000, # nombre de trajectoires de pop
+                       tmax = 100, # nombre d'iterations (années)
+                       maxruns = 5, # répéter cela 10 fois
+                       verbose = TRUE)
+
+
+# Proba to get extinct after a 100 simulations 
+proba.ext_guaribas[100]
+proba.ext_gargau[100]
+proba.ext_pacatuba[100]
+
+
+```
+```{r}
+result_stochastic <- tibble(
+  Fragments = c("Guaribas", "Gargau", "Pacatuba"), 
+  
+  Stochastic.growth.rate = c(exp(lambdastoch_500_guaribas$approx) ,exp(lambdastoch_500_gargau$approx),  
+exp(lambdastoch_500_pacatuba$approx) ) ,
+
+  Extinction_probability = c(proba.ext_guaribas[100], proba.ext_gargau[100], proba.ext_pacatuba[100])
+)
+
+write_xlsx( result_stochastic, path = "Table_env_stoc_results.xlsx")
+```
+
+On peut représenter graphiquement l'évolution de la probabilité d'extinction au cours du temps:
+
+```{r}
+
+# Figure of extinction probability over time
+
+plot_ext_guaribas <- proba.ext_guaribas %>% as.data.frame() %>% mutate(Year = 1:100) %>% pivot_longer(cols = -Year, names_to = "num_simulation", values_to = "extinction_probability") %>% mutate(Fragment = "Guaribas")
+
+
+plot_ext_gargau <- proba.ext_gargau %>% as.data.frame() %>% mutate(Year = 1:100) %>% pivot_longer(cols = -Year, names_to = "num_simulation", values_to = "extinction_probability") %>% mutate(Fragment = "Gargau")
+
+
+plot_ext_pacatuba <- proba.ext_pacatuba %>% as.data.frame() %>% mutate(Year = 1:100) %>% pivot_longer(cols = -Year, names_to = "num_simulation", values_to = "extinction_probability") %>% mutate(Fragment = "Pacatuba")
+
+plot_ext_df <- rbind(plot_ext_guaribas, plot_ext_gargau, plot_ext_pacatuba) %>% mutate(uniq_comb = str_remove_all(paste(Fragment, num_simulation)," "))
+
+ggplot(plot_ext_df, aes(x=Year, y= extinction_probability, group = uniq_comb, colour= Fragment))+
+  scale_color_manual(values = c("Guaribas" = "#a3a380", "Gargau" = "#d6ce93", "Pacatuba"= "#d8a48f"),
+                     labels = c("Guaribas" = "Guaribas",  "Gargau" = "Gargaú ", "Pacatuba" = "Pacatuba") , 
+                      guide = guide_legend(override.aes = list(linewidth = 2))) +
+  geom_line()+
+  theme_classic(base_size=18)+
+  labs(y= "Extinction probability (PE)")
+
+
+#################
+matplot(proba.ext_guaribas, xlab = "Year", ylab = "Extinction Probability (PE)", 
+        type = "l", 
+        lty = 1, 
+        las=TRUE,
+        col = rainbow(10))
+
+ggplot(proba.ext_guaribas, x )
+
+matplot(proba.ext_gargau, xlab = "Year", ylab = "Extinction Probability (PE)", 
+        type = "l", 
+        lty = 1, 
+        las=TRUE,
+        col = rainbow(10))
+
+matplot(proba.ext_pacatuba, xlab = "Year", ylab = "Extinction Probability (PE)", 
+        type = "l", 
+        lty = 1, 
+        las=TRUE,
+        col = rainbow(10))
+```
+
+
+######### demographic stochasticuty
+
+
+
+```{r}
+stochdemo_env <- function(reps, tmax, n0, mats_list){
+  totalpop <- matrix(0, nrow = tmax, ncol = reps)
+  
+  for (j in 1:reps){
+    pop <- n0
+    
+    for (t in 1:tmax){
+      if (any(is.na(pop)) || sum(pop) <2) {
+        totalpop[t, j] <- 0
+        pop <- c(0, 0)
+        next
+      }
+      
+      # Get an already constructed matrix (in the previous step)
+      A <- mats_list[[sample(length(mats_list), 1)]]
+      
+      # Get values from A
+      s1 <- A["adultes", "juveniles"]   # Juveniles survival
+      s2 <- A["adultes", "adultes"]     # Adults survival
+      f  <- A["juveniles", "adultes"]   # Fecondity
+      
+      # Demographic Stochasticity 
+      surv_juv   <- rbinom(1, pop[1], s1)
+      surv_adult <- rbinom(1, pop[2], s2)
+      new_juv    <- rpois(1, lambda = f * pop[2])
+      
+      pop <- c(new_juv, surv_juv + surv_adult)
+      totalpop[t, j] <- sum(pop)
+    }
+  }
+  return(totalpop)
+}
+
+
+
+# set values 
+npop = 100
+t = 100
+n0_guaribas = c(7,25)
+n0_gargau = c(5,10)
+n0_pacatuba = c(2,4)
+
+# Apply function :
+popsizeSD_guaribas <- stochdemo_env(reps = npop, tmax = t, n0 = n0_guaribas, mats_list = matrices_all$guaribas)
+
+popsizeSD_gargau <- stochdemo_env(reps = npop, tmax = t, n0 = n0_gargau, mats_list = matrices_all$gargau)
+
+popsizeSD_pacatuba <- stochdemo_env(reps = npop, tmax = t, n0 = n0_pacatuba, mats_list = matrices_all$pacatuba)
+
+matplot(popsizeSD_guaribas, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size')
+
+matplot(popsizeSD_gargau, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size')
+
+matplot(popsizeSD_pacatuba, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size')
+
+
+```
+
+On atteint des densités par réalistes, mais comme ce qui nous interesse c'est la probabilité d'extinction et pas la taille des pop à long terme, je pense que c'est pas trop grave ? Sinon je peut tujours ajouter la densité dépendance dans le modèle
+
+### Etape 4 : Mean growth rate 
+On va calculer lambda sur les 100 populations simulées puis calculer la moyenne.
+
+On doit faire le calcul 'à la main' car il n'existe pas de fonction qui calcule ces quantités pour les modeles avec stochasitcité démographique :
+
+```{r}
+lambdaSD <- NULL # créer un vecteur pour stocker lambda
+for( n in 1:npop){ # on fait une boucle pour répéter le calcul sur chaque pop
+  POP <- popsizeSD_guaribas[, n] # on sélectionne l'effectif de la pop n 
+  POP <- POP[POP > 0]# on garde uniquement les pas de temps avant extinction
+  # calcul de lambda
+  lambdaSD[n] <- exp( sum(log( POP[-1]/POP[-length(POP)] )) /t )
+} # fermer la boucle sur le nombre de pop
+lambdaSD # lambda pour chaque population simulée
+# On affiche un résumé 
+summary(lambdaSD)
+mean(lambdaSD)
+
+hist(lambdaSD)
+
+#----------------
+
+# GUARIBAS
+lambdaSD_guaribas <- NULL
+for(n in 1:npop){
+  POP <- popsizeSD_guaribas[, n]
+  POP <- POP[POP > 0]
+  lambdaSD_guaribas[n] <- exp(sum(log(POP[-1] / POP[-length(POP)])) / t)
+}
+summary(lambdaSD_guaribas)
+mean(lambdaSD_guaribas, na.rm = TRUE)
+hist(lambdaSD_guaribas)
+
+# GARGAU
+lambdaSD_gargau <- NULL
+for(n in 1:npop){
+  POP <- popsizeSD_gargau[, n]
+  POP <- POP[POP > 0]
+  lambdaSD_gargau[n] <- exp(sum(log(POP[-1] / POP[-length(POP)])) / t)
+}
+summary(lambdaSD_gargau)
+mean(lambdaSD_gargau, na.rm = TRUE)
+hist(lambdaSD_gargau)
+
+# PACATUBA
+lambdaSD_pacatuba <- NULL
+for(n in 1:npop){
+  POP <- popsizeSD_pacatuba[, n]
+  POP <- POP[POP > 0]
+  lambdaSD_pacatuba[n] <- exp(sum(log(POP[-1] / POP[-length(POP)])) / t)
+}
+summary(lambdaSD_pacatuba)
+mean(lambdaSD_pacatuba, na.rm = TRUE)
+hist(lambdaSD_pacatuba)
+
+
+
+
+ hist(lambdaSD_guaribas, 
+       main = paste("Stochastic lambda -", "Guaribas"),
+       xlab = "Lambda", 
+       col = "lightblue",
+       breaks = 20)
+  abline(v = 1, col = "red", lwd = 2, lty = 2)
+  abline(v = mean(lambdaSD_guaribas, na.rm = TRUE), col = "blue", lwd = 2)
+  legend("topright", 
+         legend = c("lambda = 1", "mean"),
+         col = c("red", "blue"), 
+         lty = c(2, 1), lwd = 2)
+  
+   hist(lambdaSD_gargau, 
+       main = paste("Stochastic lambda -", "Gargau"),
+       xlab = "Lambda", 
+       col = "lightblue",
+       breaks = 20)
+  abline(v = 1, col = "red", lwd = 2, lty = 2)
+  abline(v = mean(lambdaSD_gargau, na.rm = TRUE), col = "blue", lwd = 2)
+  legend("topright", 
+         legend = c("lambda = 1", "mean"),
+         col = c("red", "blue"), 
+         lty = c(2, 1), lwd = 2)
+  
+   hist(lambdaSD_pacatuba, 
+       main = paste("Stochastic lambda -", "Pacatuba"),
+       xlab = "Lambda", 
+       col = "lightblue",
+       breaks = 20)
+  abline(v = 1, col = "red", lwd = 2, lty = 2)
+  abline(v = mean(lambdaSD_pacatuba, na.rm = TRUE), col = "blue", lwd = 2)
+  legend("topright", 
+         legend = c("lambda = 1", "mean"),
+         col = c("red", "blue"), 
+         lty = c(2, 1), lwd = 2)
+  
+  
+```
+
+### Etape 5 : Calcul du risque d'extinction moyen
+
+On veut maintenant calculer la probabilité d'extinction et le temps moyen à extinction.
+
+On considère qu'il y a extinction si N < Nseuil de quasi-extinction
+
+```{r}
+Nseuil <- 2
+extinction_guaribas <- ifelse(popsizeSD_guaribas < Nseuil, 1, 0)
+popextinct_guaribas <- ifelse(apply(extinction_guaribas, 2, sum) > 0, 1, 0) # quel pop s'éteignent ? Si la population a été sous le seuil au moins une fois 
+
+
+proba.extinction_guaribas <- sum(popextinct_guaribas) / npop
+proba.extinction_guaribas
+
+########### GARGAU
+extinction_gargau <- ifelse(popsizeSD_gargau < Nseuil, 1, 0)
+popextinct_gargau <- ifelse(apply(extinction_gargau, 2, sum) > 0, 1, 0) # quel pop s'éteignent ? Si la population a été sous le seuil au moins une fois 
+
+
+proba.extinction_gargau <- sum(popextinct_gargau) / npop
+proba.extinction_gargau
+
+########### Pacatuba
+extinction_pacatuba <- ifelse(popsizeSD_pacatuba < Nseuil, 1, 0)
+popextinct_pacatuba <- ifelse(apply(extinction_pacatuba, 2, sum) > 0, 1, 0) # quel pop s'éteignent ? Si la population a été sous le seuil au moins une fois 
+
+
+proba.extinction_pacatuba <- sum(popextinct_pacatuba) / npop
+proba.extinction_pacatuba
+```
+
+Si la pop s'éteint on calcule le temps moyen à l'extinction :
+
+```{r}
+# GUARIBAS 
+tempsextinction_guaribas <- NULL
+for(n in (which(popextinct_guaribas == 1))) {
+  tempsextinction_guaribas <- c(tempsextinction_guaribas, min( which(extinction_guaribas[,n] == 1) ) )
+}
+tempsextinction_guaribas
+# temps moyen à l'extinction pour les pop éteintes
+mean(tempsextinction_guaribas,na.rm=TRUE)
+
+
+# GARGAU
+tempsextinction_gargau <- NULL
+for(n in (which(popextinct_gargau == 1))) {
+  tempsextinction_gargau <- c(tempsextinction_gargau, min( which(extinction_gargau[,n] == 1) ) )
+}
+tempsextinction_gargau
+# temps moyen à l'extinction pour les pop éteintes
+mean(tempsextinction_gargau,na.rm=TRUE)
+
+
+# PACATUBA 
+tempsextinction_pacatuba <- NULL
+for(n in (which(popextinct_pacatuba == 1))) {
+  tempsextinction_pacatuba <- c(tempsextinction_pacatuba, min( which(extinction_pacatuba[,n] == 1) ) )
+}
+tempsextinction_pacatuba
+# temps moyen à l'extinction pour les pop éteintes
+mean(tempsextinction_pacatuba,na.rm=TRUE)
+
+
+hist_TE_guari <- ggplot(tibble(temps_extinction = tempsextinction_guaribas),aes(x= temps_extinction))+
+  geom_histogram(fill="grey", color="black", linewidth = 0.2)+
+  theme_classic(base_size=18) +
+    geom_vline(xintercept = mean(tempsextinction_guaribas,na.rm=TRUE), linetype = "dashed", color = "blue")+
+  labs(x = "Time to extinction")
+
+hist_TE_garg <- ggplot(tibble(temps_extinction = tempsextinction_gargau),aes(x= temps_extinction))+
+  geom_histogram(fill="grey", color="black", linewidth = 0.2)+
+  theme_classic(base_size=18) +
+  geom_vline(xintercept = mean(tempsextinction_gargau,na.rm=TRUE), linetype = "dashed", color = "blue")+
+  labs(x = "Time to extinction")
+
+hist_TE_paca <- ggplot(tibble(temps_extinction = tempsextinction_pacatuba),aes(x= temps_extinction))+
+  geom_histogram(fill="grey", color="black", linewidth = 0.2)+
+  theme_classic(base_size=18) +
+    geom_vline(xintercept = mean(tempsextinction_pacatuba,na.rm=TRUE), linetype = "dashed", color = "blue")+
+  labs(x = "Time to extinction")
+  
+
+
+```
+
+
+
+
+
+```{r}
+
+result_soch_demo <- tibble(Fragment = c("Garibas", "Gargau", "Pacatuba"), 
+       Mean_lamda = c(mean(lambdaSD_guaribas, na.rm = TRUE), mean(lambdaSD_gargau, na.rm = TRUE),mean(lambdaSD_pacatuba, na.rm = TRUE)), 
+       SD_lambda =  c(sd(lambdaSD_guaribas, na.rm = TRUE), sd(lambdaSD_gargau, na.rm = TRUE), sd(lambdaSD_pacatuba, na.rm = TRUE)), 
+       Extinction_probability = c(proba.extinction_guaribas, proba.extinction_gargau, proba.extinction_pacatuba), 
+       Mean_extinction_time = c(mean(tempsextinction_guaribas,na.rm=TRUE), mean(tempsextinction_gargau,na.rm=TRUE), mean(tempsextinction_pacatuba,na.rm=TRUE)),
+       SD_extinction_time = c(sd(tempsextinction_guaribas,na.rm=TRUE), sd(tempsextinction_gargau,na.rm=TRUE),sd(tempsextinction_pacatuba,na.rm=TRUE))
+       )
+
+
+result_soch_demo <- result_soch_demo %>% mutate(Mean_lamda= round(Mean_lamda, 2), SD_lambda = round(SD_lambda, 2), Mean_extinction_time = round(Mean_extinction_time, 2), SD_extinction_time= round(SD_extinction_time, 2) )
+
+
+write_xlsx( result_soch_demo, path = "Table_demoetenc_stoc_results.xlsx")
+
+
+
+blanck <- ggplot()+theme_void()
+
+ figure_TE_demo_didel <- ggarrange(  
+               
+          ggarrange( hist_TE_guari,hist_TE_garg,  nrow = 1,common.legend=TRUE,  legend = "right",labels=c('A','B'),
+            font.label = list(size = 18, color = "black")),
+            
+        
+  ggarrange(blank, hist_TE_paca, blank,  nrow = 1,#common.legend=TRUE, 
+            widths = c(0.5, 1, 0.5), labels=c(' ','C',' '),
+            font.label = list(size = 18, color = "black")), 
+  
+  nrow = 2,
+  # widths = c(0.5, 1, 0.5, 1),
+  font.label = list(size = 18, color = "black"))
+ 
+
+ 
+ figure_pop_sizes_demo_didel <- ggarrange(  
+               
+          ggarrange( hist_TE_guari,
+                     
+                     
+                     
+                     
+                     hist_TE_garg,  nrow = 1,common.legend=TRUE,  legend = "right",labels=c('A','B'),
+            font.label = list(size = 18, color = "black")),
+            
+        
+  ggarrange(blank, hist_TE_paca, blank,  nrow = 1,#common.legend=TRUE, 
+            widths = c(0.5, 1, 0.5), labels=c(' ','C',' '),
+            font.label = list(size = 18, color = "black")), 
+  
+  nrow = 2,
+  # widths = c(0.5, 1, 0.5, 1),
+  font.label = list(size = 18, color = "black"))
+ 
+ 
+matplot(popsizeSD_guaribas, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size',
+        main= "Guaribas")
+
+matplot(popsizeSD_gargau, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size', 
+        main = "Gargau")
+
+matplot(popsizeSD_pacatuba, 
+        las=TRUE,
+        log = 'y',
+        type = 'l', 
+        xlab = 'Time (Year)', 
+        ylab = 'Total population size', 
+        main = "Pacatuba")
+
+
+length(which(lambdaSD_guaribas>1) ) / length(lambdaSD_guaribas)
+
+length(which(lambdaSD_gargau>1) ) / length(lambdaSD_gargau)
+
+length(which(lambdaSD_pacatuba>1) ) / length(lambdaSD_pacatuba)
+
+```

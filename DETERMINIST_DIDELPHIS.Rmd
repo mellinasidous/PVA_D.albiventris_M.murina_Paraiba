@@ -1,0 +1,347 @@
+---
+title: "Determinist PVA in all three fragment (Didelphis albiventris)"
+author: "Mellina Sidous"
+date: "2026-05-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(popbio)
+library(tidyverse)
+library(ggplot2)
+library(writexl)
+```
+
+# Rebio II - Guaribas
+
+
+### 1.1 Transition matrix
+
+
+* Etape 1
+```{r matrix, results ="hide"}
+
+## 1 - Guaribas 
+s1_guaribas = 0.45
+s2_guaribas = 0.7
+f_guaribas = 0.68
+
+param_guaribas <- c(0, f_guaribas, s1_guaribas, s2_guaribas)
+
+mat.didel.guaribas <- matrix(param_guaribas, nrow = 2, ncol = 2, byrow = TRUE)
+
+## 2 - Gargau
+s1_gargau = 0.45
+s2_gargau = 0.7
+f_gargau = 0.77
+
+mat.didel.gargau <- matrix(c(0, f_gargau, s1_gargau, s2_gargau), nrow = 2, ncol = 2, byrow = TRUE)
+
+
+## 3 - Pacatuba
+s1_pacatuba = 0.225
+s2_pacatuba = 0.45
+f_pacatuba = 2.52
+
+mat.didel.pacatuba <- matrix(c(0, f_pacatuba, s1_pacatuba, s2_pacatuba), nrow = 2, ncol = 2, byrow = TRUE)
+
+
+```
+
+
+### 1.2 Matrix Projection
+
+
+```{r sim_guaribas, results ="hide"}
+
+lambda(mat.didel.guaribas)
+lambda(mat.didel.gargau)
+lambda(mat.didel.pacatuba)
+
+stable.stage(mat.didel.guaribas)
+stable.stage(mat.didel.gargau)
+stable.stage(mat.didel.pacatuba)
+
+#contribution relative de chaque classe d'âge à la génération suivante
+reproductive.value(mat.didel.guaribas)
+reproductive.value(mat.didel.gargau)
+reproductive.value(mat.didel.pacatuba)
+  
+generation.time(mat.didel.guaribas)
+generation.time(mat.didel.gargau)
+generation.time(mat.didel.pacatuba)
+
+result_deterministic <- tibble(Fragment = c("Guaribas", "Gargau", "Pacatuba"), 
+             Asymptotic_growth_rate = c(lambda(mat.didel.guaribas),
+                                        lambda(mat.didel.gargau),
+                                        lambda(mat.didel.pacatuba)) , 
+       
+             Stable_juvenile_proportion= c(stable.stage(mat.didel.guaribas)[1],
+                                      stable.stage(mat.didel.gargau)[1],
+                                      stable.stage(mat.didel.pacatuba)[1]), 
+            Stable_adult_proportion= c(stable.stage(mat.didel.guaribas)[2],
+                                      stable.stage(mat.didel.gargau)[2],
+                                      stable.stage(mat.didel.pacatuba)[2]), 
+             Juvenile_contribution = c(reproductive.value(mat.didel.guaribas)[1],
+                                        reproductive.value(mat.didel.gargau)[1],
+                                        reproductive.value(mat.didel.pacatuba)[1]), 
+                    Adult_contribution = c(reproductive.value(mat.didel.guaribas)[2],
+                                        reproductive.value(mat.didel.gargau)[2],
+                                        reproductive.value(mat.didel.pacatuba)[2]), 
+             generation_time = c(generation.time(mat.didel.guaribas),
+                                generation.time(mat.didel.gargau),
+                                generation.time(mat.didel.pacatuba)))
+
+write_xlsx(result_deterministic, path = "Table_results_deterministic_Didelphis.xlsx")
+
+```
+
+## Elasticity sensitivity for all of them
+
+
+```{r sens1, results ="hide"}
+didel.guaribas.paramdemo <-  list(s1 = 0.45, s2 = 0.7,f = 0.68)
+didel.gargau.paramdemo <-  list(s1 = 0.45, s2 = 0.7,f = 0.77)
+didel.pacatuba.paramdemo <-  list(s1 = 0.225, s2 = 0.45,f = 2.52)
+
+didel.equation <- expression( 0, f, s1, s2)
+
+analyse_sensi_guaribas <- vitalsens(didel.equation, didel.guaribas.paramdemo) %>% mutate(Fragment = "Guaribas")
+analyse_sensi_gargau <- vitalsens(didel.equation, didel.gargau.paramdemo)%>% mutate(Fragment = "Gargau")
+analyse_sensi_pacatuba <- vitalsens(didel.equation, didel.pacatuba.paramdemo) %>% mutate(Fragment = "Pacatuba")
+
+
+result_elasticity <- rbind(analyse_sensi_guaribas, analyse_sensi_gargau, analyse_sensi_pacatuba)
+
+write_xlsx(result_elasticity, path = "Table_results_elasticity_deterministic_Didelphis.xlsx")
+
+
+plot_sens_guar <- analyse_sensi_guaribas %>%
+  mutate(parametre = rownames(analyse_sensi_guaribas)) %>%
+  pivot_longer(cols = c("sensitivity", "elasticity")) %>%
+  ggplot(aes(x = reorder(parametre, -value), y = value, fill = name)) +
+  geom_col(position = "dodge") +
+  scale_fill_grey() +
+  theme_classic(base_size=18) +
+  ggtitle("Guaribas")+
+  labs(x = "Parameter", y = "", fill = "") +
+  theme(plot.title = element_text(size = 16))
+
+
+plot_sens_garg <-analyse_sensi_gargau %>%
+  mutate(parametre = rownames(analyse_sensi_gargau)) %>%
+  pivot_longer(cols = c("sensitivity", "elasticity")) %>%
+  ggplot(aes(x = reorder(parametre, -value), y = value, fill = name)) +
+  geom_col(position = "dodge") +
+  scale_fill_grey() +
+  theme_classic(base_size=18) +
+  ggtitle("Gargau")+
+  labs(x = "Parameter", y = "", fill = "")+
+  theme(plot.title = element_text(size = 16))
+
+
+plot_sens_paca <- analyse_sensi_pacatuba %>%
+  mutate(parametre = rownames(analyse_sensi_pacatuba)) %>%
+  pivot_longer(cols = c("sensitivity", "elasticity")) %>%
+  ggplot(aes(x = reorder(parametre, -value), y = value, fill = name)) +
+  geom_col(position = "dodge") +
+  scale_fill_grey() +
+  theme_classic(base_size=18) +
+  ggtitle("Pacatuba")+
+  labs(x = "Parameter", y = "", fill = "")+
+  theme(legend.position = "none")+
+  theme(plot.title = element_text(size = 16))
+
+blank <- ggplot() + theme_void()
+
+ figure_elasticity_didel <- ggarrange(  
+               
+          ggarrange( plot_sens_guar,plot_sens_garg,  nrow = 1,common.legend=TRUE,  legend = "right",labels=c('A','B'),
+            font.label = list(size = 18, color = "black")),
+            
+        
+  ggarrange(blank, plot_sens_paca, blank,  nrow = 1,#common.legend=TRUE, 
+            widths = c(0.5, 1, 0.5), labels=c(' ','C',' '),
+            font.label = list(size = 18, color = "black")), 
+  
+  nrow = 2,
+  # widths = c(0.5, 1, 0.5, 1),
+  font.label = list(size = 18, color = "black"))
+
+
+```
+# Variation in lambda in different scenarios: 
+
+
+
+```{r modifs0, results ="hide"}
+
+
+fragments <- list(
+  guaribas = list(s1_values = c(0.45, 0.442, 0.441, 0.440), f = f_guaribas, s2 = s2_guaribas),
+  gargau   = list(s1_values = c(0.45, 0.4, 0.39, 0.385), f = f_gargau,   s2 = s2_gargau),
+  pacatuba = list(s1_values = c(0.225, 0.220, 0.218, 0.217), f = f_pacatuba, s2 = s2_pacatuba)
+)
+
+results <- data.frame(Fragment = character(), S1_value = numeric(), Lambda_value = numeric())
+
+# Double boucle : fragment > s1
+for (frag_name in names(fragments)) {
+  frag <- fragments[[frag_name]]
+  
+  for (s1.modif in frag$s1_values) {
+    param.modif <- c(0, frag$f, s1.modif, frag$s2)
+    mat.modif   <- matrix(param.modif, nrow = 2, ncol = 2, byrow = TRUE)
+    lam         <- lambda(mat.modif)
+    
+    results <- rbind(results, data.frame(
+      Fragment     = frag_name,
+      S1_value     = s1.modif,
+      Lambda_value = lam
+    ))
+  }
+}
+
+print(results)
+
+
+ggplot(results, aes(x= S1_value, y=Lambda_value, group=Fragment, color=Fragment))+
+  geom_point()+
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)
+
+```
+
+
+```{r modifs0, results ="hide"}
+
+
+fragments <- list(
+  guaribas = list(s1 = s1_guaribas, f = f_guaribas, s2_values = c(0.7, 0.695, 0.694, 0.693)),
+  gargau   = list(s1 = s1_gargau, f = f_gargau,   s2_values = c(0.7, 0.66, 0.655, 0.652)),
+  pacatuba = list(s1 = s1_pacatuba, f = f_pacatuba, s2_values =c(0.45, 0.44, 0.435, 0.43) ))
+
+results_S2 <- data.frame(Fragment = character(), S2_value = numeric(), Lambda_value = numeric())
+
+# Double boucle : fragment > s1
+for (frag_name in names(fragments)) {
+  frag <- fragments[[frag_name]]
+  
+  for (s2.modif in frag$s2_values) {
+    param.modif <- c(0, frag$f, frag$s1, s2.modif)
+    mat.modif   <- matrix(param.modif, nrow = 2, ncol = 2, byrow = TRUE)
+    lam         <- lambda(mat.modif)
+    
+    results_S2 <- rbind(results_S2, data.frame(
+      Fragment     = frag_name,
+      S2_value     = s2.modif,
+      Lambda_value = lam
+    ))
+  }
+}
+
+print(results_S2)
+
+
+ggplot(results_S2, aes(y= S2_value, x=Lambda_value, group=Fragment, color=Fragment))+
+  geom_point()+
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)
+
+```
+
+
+```{r modifs0, results ="hide"}
+
+
+fragments <- list(
+  guaribas = list(s1 = s1_guaribas, f_values = c(0.68, 0.675, 0.67, 0.665), s2 = s2_guaribas),
+  gargau   = list(s1 = s1_gargau, f_values = c(0.77, 0.67, 0.665, 0.66),   s2 = s2_gargau),
+  pacatuba = list(s1 = s1_pacatuba, f_values = c(2.52, 2.46, 2.45, 2.44), s2 =s2_pacatuba ))
+
+results_S3 <- data.frame(Fragment = character(), f_value = numeric(), Lambda_value = numeric())
+
+# Double boucle : fragment > s1
+for (frag_name in names(fragments)) {
+  frag <- fragments[[frag_name]]
+  
+  for (f.modif in frag$f_values) {
+    param.modif <- c(0, f.modif, frag$s1, frag$s2)
+    mat.modif   <- matrix(param.modif, nrow = 2, ncol = 2, byrow = TRUE)
+    lam         <- lambda(mat.modif)
+    
+    results_S3 <- rbind(results_S3, data.frame(
+      Fragment     = frag_name,
+      f_value     = f.modif,
+      Lambda_value = lam
+    ))
+  }
+}
+
+print(results_S3)
+
+
+ggplot(results_S3, aes(y= f_value, x=Lambda_value, group=Fragment, color=Fragment))+
+  geom_point()+
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)+
+  labs(y = " f value", x= expression(lambda))
+
+```
+
+Save the plots 
+
+```{r}
+
+
+
+change_para_guari <- ggplot(results, aes(x= S1_value, y=Lambda_value, group=Fragment, color=Fragment))+
+    scale_color_manual(values = c("Guaribas" = "#a3a380", "Gargau" = "#d6ce93", "Pacatuba"= "#d8a48f"),labels = c("Guaribas" = "Guaribas",  "Gargau" = "Gargaú ", "Pacatuba" = "Pacatuba") , guide = guide_legend(override.aes = list(linewidth = 2)))+
+  geom_point()+
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)+
+  labs(x = expression(S[1] ~ "value"), y= expression(lambda))
+
+
+change_para_garga <- ggplot(results_S2, aes(x= S2_value, y=Lambda_value, group=Fragment, color=Fragment))+
+  geom_point()+
+    scale_color_manual(values = c("Guaribas" = "#a3a380", "Gargau" = "#d6ce93", "Pacatuba"= "#d8a48f"),labels = c("Guaribas" = "Guaribas",  "Gargau" = "Gargaú ", "Pacatuba" = "Pacatuba") , guide = guide_legend(override.aes = list(linewidth = 2)))+
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)+
+  labs(x = expression(S[2] ~ "value"), y= expression(lambda))
+
+
+
+change_para_pacat <- ggplot(results_S3, aes(x= f_value, y=Lambda_value, group=Fragment, color=Fragment))+
+    scale_color_manual(values = c("Guaribas" = "#a3a380", "Gargau" = "#d6ce93", "Pacatuba"= "#d8a48f"),labels = c("Guaribas" = "Guaribas",  "Gargau" = "Gargaú ", "Pacatuba" = "Pacatuba") , guide = guide_legend(override.aes = list(linewidth = 2)))+
+  geom_point()+
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red")+
+  geom_line()+
+  theme_classic(base_size=18)+
+  labs(x = " f value", y= expression(lambda))+
+  theme(legend.position = "none")
+
+
+ figure_para_change_didel <- ggarrange(  
+               
+          ggarrange( change_para_guari,change_para_garga,  nrow = 1,common.legend=TRUE,  legend = "right",labels=c('A','B'),
+            font.label = list(size = 18, color = "black")),
+            
+        
+  ggarrange(blank, change_para_pacat, blank,  nrow = 1,#common.legend=TRUE, 
+            widths = c(0.5, 1, 0.5), labels=c(' ','C',' '),
+            font.label = list(size = 18, color = "black")), 
+  
+  nrow = 2,
+  # widths = c(0.5, 1, 0.5, 1),
+  font.label = list(size = 18, color = "black"))
+ 
+ 
+```
